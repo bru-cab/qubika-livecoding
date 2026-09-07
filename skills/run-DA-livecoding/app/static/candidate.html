@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qubika SQL Interview</title>
+<style>
+:root{
+  --blue:#1A6DFF; --ink:#101828; --muted:#667085; --line:#e4e7ec;
+  --bg:#f8fafc; --card:#ffffff; --red:#d92d20; --green:#067647; --amber:#b54708;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:20px;padding:10px 20px;background:var(--card);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:700;font-size:18px;white-space:nowrap}
+.brand .dot{color:var(--blue)}
+.brand .sub{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
+nav{display:flex;gap:6px;flex-wrap:wrap}
+nav button{border:1px solid var(--line);background:var(--card);border-radius:8px;
+  padding:6px 12px;font-size:13px;cursor:pointer;color:var(--muted)}
+nav button.active{border-color:var(--blue);color:var(--blue);font-weight:600;background:#eff4ff}
+main{flex:1;display:grid;grid-template-columns:minmax(320px,5fr) minmax(380px,7fr);
+  gap:14px;padding:14px 20px;overflow:hidden}
+@media (max-width:900px){
+  body{height:auto}
+  main{grid-template-columns:1fr;overflow:visible}
+  section{overflow:visible!important}
+}
+section{overflow:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+#statement{border-top:3px solid var(--blue)}
+#statement h1,#statement h2,#statement h3{margin:.3em 0 .4em;font-size:17px}
+#statement p{margin:.5em 0;line-height:1.5;font-size:14px}
+#statement code{background:#eff4ff;color:var(--blue);padding:1px 5px;border-radius:4px;
+  font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+#statement pre{background:#f4f6f8;padding:10px;border-radius:8px;overflow:auto;font-size:12.5px}
+#statement ul{margin:.4em 0;padding-left:20px;font-size:14px;line-height:1.5}
+details{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:var(--card)}
+summary{cursor:pointer;padding:8px 12px;font-weight:600;font-size:13px}
+summary .hint{font-weight:400}
+details pre{margin:0;padding:10px 12px;background:#f4f6f8;font-size:12px;overflow:auto;
+  font-family:ui-monospace,Menlo,monospace;border-top:1px solid var(--line)}
+.sample{overflow:auto;max-height:240px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:#f4f6f8;font-weight:600}
+.null{color:var(--muted);font-style:italic}
+.editor-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.editor-head h4{margin:0;flex:1}
+#run{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 18px;
+  font-size:14px;font-weight:600;cursor:pointer}
+#run:disabled{opacity:.5;cursor:default}
+.hint{color:var(--muted);font-size:12px}
+.editor-wrap{position:relative;border:1px solid var(--line);border-radius:8px;
+  overflow:hidden;background:var(--card)}
+.editor-wrap:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,109,255,.12)}
+textarea, #highlight code{
+  font-family:ui-monospace,Menlo,monospace;font-size:13.5px;line-height:1.45;
+  padding:10px;white-space:pre-wrap;word-wrap:break-word;
+  /* metrics of both layers MUST stay identical for the overlay to align */
+}
+textarea{display:block;width:100%;min-height:170px;resize:vertical;border:none;
+  outline:none;background:transparent;color:transparent;caret-color:var(--ink);
+  position:relative;z-index:2;margin:0;scrollbar-gutter:stable}
+textarea::placeholder{color:var(--muted)}
+textarea::selection{background:rgba(26,109,255,.22)}
+#highlight{position:absolute;inset:0;margin:0;overflow:hidden;z-index:1;
+  pointer-events:none;scrollbar-gutter:stable}
+#highlight code{display:block;color:var(--ink)}
+.tk{color:#1A6DFF;font-weight:600}   /* keywords */
+.tf{color:#7c3aed}                    /* functions */
+.ts{color:#067647}                    /* strings */
+.tn{color:#b54708}                    /* numbers */
+.tc{color:#98a2b3;font-style:italic}  /* comments */
+#status{font-size:13px;min-height:18px;margin-top:8px}
+#status.ok{color:var(--green)}
+#status.err{color:var(--red)}
+#status.warn{color:var(--amber)}
+#status pre{white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:4px 0 0}
+.result-card{flex:1;min-height:160px;display:flex;flex-direction:column}
+#result{overflow:auto;flex:1;min-height:0}
+#overlay{position:fixed;inset:0;background:rgba(248,250,252,.97);display:grid;place-items:center;z-index:10}
+#overlay .box{text-align:center}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">qubika<span class="dot">.</span><span class="sub">SQL Interview</span></div>
+  <nav id="tabs"></nav>
+</header>
+<main>
+  <section>
+    <div class="card" id="statement"><p class="hint">Loading…</p></div>
+    <div class="card"><h4>Tables</h4><div id="schemas"></div></div>
+  </section>
+  <section>
+    <div class="card">
+      <div class="editor-head">
+        <h4>Your query</h4>
+        <span class="hint">⌘/Ctrl + Enter to run</span>
+        <button id="run">▶ Run</button>
+      </div>
+      <div class="editor-wrap">
+        <pre id="highlight" aria-hidden="true"><code id="highlight-code"></code></pre>
+        <textarea id="editor" spellcheck="false" autocomplete="off"
+                  autocapitalize="off" placeholder="SELECT ..."></textarea>
+      </div>
+      <div id="status"></div>
+    </div>
+    <div class="card result-card"><h4>Results</h4>
+      <div id="result"><p class="hint">You haven't run any query yet.</p></div>
+    </div>
+  </section>
+</main>
+<div id="overlay" hidden>
+  <div class="box"><h2>Session ended</h2>
+  <p class="hint">Let the interviewer know if you think this is a mistake.</p></div>
+</div>
+<script>
+"use strict";
+const token = new URLSearchParams(location.search).get("t") || "";
+const api = p => p + "?t=" + encodeURIComponent(token);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const EMPTY_RESULT = "<p class='hint'>You haven't run any query yet.</p>";
+
+let exercises = [], current = null, running = false, rowCap = 200;
+const state = {};       // name -> {text, resultHtml, statusHtml, statusClass}
+const lastSaved = {};   // name -> last text persisted to the server
+let saveTimer = null;
+
+function ended(){ $("overlay").hidden = false; }
+
+async function boot(){
+  let r;
+  try { r = await fetch(api("/api/bootstrap")); }
+  catch(e){ $("statement").innerHTML = "<p>Could not connect. Reload the page.</p>"; return; }
+  if (r.status === 410) return ended();
+  if (!r.ok){
+    document.body.innerHTML = "<p style='padding:40px;font-family:sans-serif'>Invalid link.</p>";
+    return;
+  }
+  const data = await r.json();
+  exercises = data.exercises;
+  rowCap = data.row_cap;
+  for (const e of exercises){
+    state[e.name] = { text:(data.saved_editor_texts||{})[e.name]||"",
+                      resultHtml:null, statusHtml:"", statusClass:"" };
+    lastSaved[e.name] = state[e.name].text;
+  }
+  renderTabs();
+  select(exercises[0].name);
+}
+
+function renderTabs(){
+  $("tabs").innerHTML = exercises.map(e =>
+    `<button data-name="${esc(e.name)}">${esc(e.title)}</button>`).join("");
+  document.querySelectorAll("nav button").forEach(b =>
+    b.addEventListener("click", () => select(b.dataset.name)));
+}
+
+function select(name){
+  clearTimeout(saveTimer);
+  if (current) queueSave(current);
+  current = name;
+  document.querySelectorAll("nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.name === name));
+  const e = exercises.find(x => x.name === name);
+  $("statement").innerHTML = md(e.statement_md);
+  renderSchemas(e);
+  $("editor").value = state[name].text;
+  paintEditor();
+  $("result").innerHTML = state[name].resultHtml || EMPTY_RESULT;
+  const st = $("status");
+  st.className = state[name].statusClass;
+  st.innerHTML = state[name].statusHtml;
+}
+
+function renderSchemas(e){
+  let html = "";
+  for (const t of e.tables){
+    html += `<details open><summary>${esc(t.name)} `
+          + `<span class="hint">— first ${t.rows.length} rows</span></summary>`
+          + `<div class="sample"><table><thead><tr>`
+          + t.columns.map(c => `<th>${esc(c)}</th>`).join("")
+          + `</tr></thead><tbody>`
+          + t.rows.map(r => `<tr>${r.map(v =>
+              `<td>${(v === "" || v == null) ? '<span class="null">NULL</span>' : esc(v)}</td>`
+            ).join("")}</tr>`).join("")
+          + `</tbody></table></div></details>`;
+  }
+  html += `<details><summary>Full DDL</summary><pre>${esc(e.schema_sql)}</pre></details>`;
+  $("schemas").innerHTML = html;
+}
+
+// Tiny markdown subset: headings, - lists, **bold**, `code`, ``` fences.
+function md(src){
+  const parts = String(src).split(/```/);
+  let html = "";
+  for (let i = 0; i < parts.length; i++){
+    if (i % 2 === 1){
+      html += "<pre>" + esc(parts[i].replace(/^\w*\n/, "")) + "</pre>";
+      continue;
+    }
+    const lines = esc(parts[i]).split("\n");
+    let para = [], inList = false;
+    const flushP = () => { if (para.length){ html += "<p>" + inline(para.join(" ")) + "</p>"; para = []; } };
+    const closeList = () => { if (inList){ html += "</ul>"; inList = false; } };
+    for (const line of lines){
+      const h = line.match(/^(#{1,3})\s+(.*)/);
+      if (h){ flushP(); closeList();
+        const lvl = Math.min(h[1].length, 3);
+        html += `<h${lvl}>${inline(h[2])}</h${lvl}>`; continue; }
+      const li = line.match(/^\s*-\s+(.*)/);
+      if (li){ flushP();
+        if (!inList){ html += "<ul>"; inList = true; }
+        html += `<li>${inline(li[1])}</li>`; continue; }
+      if (!line.trim()){ flushP(); closeList(); continue; }
+      para.push(line.trim());
+    }
+    flushP(); closeList();
+  }
+  return html;
+}
+function inline(s){
+  return s.replace(/`([^`]+)`/g, "<code>$1</code>")
+          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+// --- SQL syntax highlighting (transparent textarea over a painted layer) ---
+const SQL_KEYWORDS = new Set(("select from where group by having order limit offset " +
+  "join inner left right full outer cross on as and or not in is null distinct " +
+  "case when then else end like ilike between union all with exists desc asc " +
+  "using cast values intersect except").split(" "));
+const SQL_FUNCS = new Set(("count sum avg min max round coalesce concat lower upper " +
+  "substr substring abs length trim replace now current_date date_trunc extract " +
+  "year month day rank dense_rank row_number lag lead nullif").split(" "));
+
+function highlightSQL(src){
+  const re = /(--[^\n]*)|(\/\*[\s\S]*?\*\/)|('(?:[^']|'')*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g;
+  let out = "", m;
+  while ((m = re.exec(src)) !== null){
+    const tok = m[0];
+    if (m[1] || m[2]) out += `<span class="tc">${esc(tok)}</span>`;
+    else if (m[3]) out += `<span class="ts">${esc(tok)}</span>`;
+    else if (m[4]) out += `<span class="tn">${esc(tok)}</span>`;
+    else if (m[5]){
+      const w = tok.toLowerCase();
+      if (SQL_KEYWORDS.has(w)) out += `<span class="tk">${esc(tok)}</span>`;
+      else if (SQL_FUNCS.has(w)) out += `<span class="tf">${esc(tok)}</span>`;
+      else out += esc(tok);
+    } else out += esc(tok);
+  }
+  return out;
+}
+
+function paintEditor(){
+  // trailing "\n" keeps the layer as tall as the textarea's last empty line
+  $("highlight-code").innerHTML = highlightSQL($("editor").value + "\n");
+  syncEditorScroll();
+}
+function syncEditorScroll(){
+  $("highlight").scrollTop = $("editor").scrollTop;
+  $("highlight").scrollLeft = $("editor").scrollLeft;
+}
+$("editor").addEventListener("scroll", syncEditorScroll);
+
+$("editor").addEventListener("input", () => {
+  paintEditor();
+  if (!current) return;
+  state[current].text = $("editor").value;
+  clearTimeout(saveTimer);
+  const name = current;
+  saveTimer = setTimeout(() => queueSave(name), 600);
+});
+$("editor").addEventListener("keydown", ev => {
+  if (ev.key === "Tab"){
+    ev.preventDefault();
+    const el = $("editor"), s = el.selectionStart, e = el.selectionEnd;
+    el.value = el.value.slice(0, s) + "  " + el.value.slice(e);
+    el.selectionStart = el.selectionEnd = s + 2;
+    el.dispatchEvent(new Event("input"));
+  }
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter"){
+    ev.preventDefault();
+    run();
+  }
+});
+
+let savePending = Promise.resolve();
+function queueSave(name){
+  // Saves are serialized (no out-of-order overwrites) and lastSaved only
+  // advances on a 2xx, so a failed save retries instead of going stale.
+  savePending = savePending.then(async () => {
+    const text = state[name].text;
+    if (text === lastSaved[name]) return;
+    try {
+      const r = await fetch(api("/api/editor"), {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({exercise: name, text})
+      });
+      if (r.status === 410) return ended();
+      if (r.ok) lastSaved[name] = text;
+      else setTimeout(() => queueSave(name), 2000);
+    } catch(e){
+      setTimeout(() => queueSave(name), 2000);
+    }
+  });
+}
+
+$("run").addEventListener("click", run);
+async function run(){
+  if (running || !current) return;
+  const name = current;  // pin the originating exercise: the response must
+  const sql = $("editor").value;  // never land on whatever tab is active later
+  running = true;
+  $("run").disabled = true;
+  // Snapshot the status BEFORE overwriting it with "Running…", so the
+  // rate-limited (429) path below can restore what the candidate was reading.
+  const prevHtml = state[name].statusHtml, prevCls = state[name].statusClass;
+  setStatus(name, "Running…", "");
+  let r, data = {};
+  try {
+    r = await fetch(api("/api/run"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({exercise: name, sql})
+    });
+  } catch(e){
+    running = false; $("run").disabled = false;
+    setStatus(name, "Connection error — try again.", "err");
+    return;
+  }
+  running = false;
+  $("run").disabled = false;
+  if (r.status === 410) return ended();
+  try { data = await r.json(); } catch(e){}
+  if (r.status === 429){
+    // Nothing ran: put back the pre-run status so the transient warning
+    // decays to it instead of to the "Running…" persisted above.
+    setStatus(name, prevHtml, prevCls);
+    return showTransient(data.error || "Wait a moment.");
+  }
+  if (r.status === 400)
+    return setStatus(name, "<pre>" + esc(data.error || "Query rejected.") + "</pre>", "err");
+  if (r.status >= 500)
+    return setStatus(name, "Could not reach the interview server (HTTP " + r.status +
+                     "). The session may have been restarted — ask the interviewer.", "err");
+  if (!r.ok) return setStatus(name, "Unexpected error (HTTP " + r.status + ").", "err");
+  renderResult(name, data);
+}
+
+function setStatus(name, html, cls){
+  state[name].statusHtml = html;
+  state[name].statusClass = cls;
+  if (name === current){
+    const el = $("status");
+    el.className = cls;
+    el.innerHTML = html;
+  }
+}
+
+function showTransient(msg){
+  // Rate-limit warnings show briefly WITHOUT clobbering the persisted
+  // status — often the error the candidate is still reading.
+  const el = $("status");
+  el.className = "warn";
+  el.textContent = msg;
+  setTimeout(() => {
+    if (!current) return;
+    el.className = state[current].statusClass;
+    el.innerHTML = state[current].statusHtml;
+  }, 2500);
+}
+
+function renderResult(name, res){
+  if (res.status === "ok"){
+    let cls = "ok";
+    let msg = `${res.row_count} row${res.row_count === 1 ? "" : "s"} · ${res.duration_ms} ms`;
+    if (res.truncated){ cls = "warn"; msg += ` · result truncated (${rowCap}-row limit)`; }
+    let t;
+    if (!res.rows.length){
+      t = "<p class='hint'>The query returned no rows.</p>";
+    } else {
+      t = "<table><thead><tr>"
+        + res.columns.map(c => `<th>${esc(c)}</th>`).join("")
+        + "</tr></thead><tbody>"
+        + res.rows.map(row => "<tr>" + row.map(v =>
+            `<td>${v === null ? '<span class="null">NULL</span>' : esc(v)}</td>`
+          ).join("") + "</tr>").join("")
+        + "</tbody></table>";
+    }
+    state[name].resultHtml = t;
+    if (name === current) $("result").innerHTML = t;
+    setStatus(name, msg, cls);
+  } else {
+    const cls = res.status === "timeout" ? "warn" : "err";
+    setStatus(name, "<pre>" + esc(res.error || "Error") + "</pre>", cls);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

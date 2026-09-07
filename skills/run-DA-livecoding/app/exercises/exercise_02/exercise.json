@@ -1,0 +1,16 @@
+{
+  "title": "Exercise 2",
+  "difficulty": "junior",
+  "focus": "JOIN + numeric filter",
+  "tables": [
+    {
+      "name": "customers",
+      "csv": "data/customers.csv"
+    },
+    {
+      "name": "orders",
+      "csv": "data/orders.csv"
+    }
+  ],
+  "sample_rows": 5
+}

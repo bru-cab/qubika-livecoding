@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+# interview session logs (never inside the plugin, but just in case)
+sessions/
+*.jsonl
