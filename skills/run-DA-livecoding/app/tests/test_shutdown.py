@@ -124,6 +124,65 @@ class TestShutdownWithQueryInFlight(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
+class TestCandidateAndChecksEndToEnd(unittest.TestCase):
+    """The candidate's name reaches the folder, the banner and the log, and the
+    result column comes up for every seed exercise."""
+
+    def test_named_session(self):
+        name = "Mar\u00eda P\u00e9rez"
+        data_dir = tempfile.mkdtemp(prefix="qsi_named_")
+        env = dict(os.environ, DATA_ANALYTICS_LIVECODING_DATA_DIR=data_dir)
+        proc = subprocess.Popen(
+            [sys.executable, SERVE, "--no-tunnel", "--port", "8996",
+             "--candidate", name],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
+            start_new_session=True)
+        try:
+            token = _wait_for_token(self, proc, data_dir)
+            self.assertTrue(token)
+            _post_run(8996, token, "exercise_01",
+                      "select count(*) from orders where status='completed'")
+            time.sleep(0.5)
+
+            proc.send_signal(signal.SIGINT)
+            try:
+                out = proc.communicate(timeout=20)[0]
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                self.fail("the named session ignored Ctrl+C")
+            self.assertEqual(proc.returncode, 0, out)
+            self.assertNotIn("Traceback", out)
+
+            sessions = os.listdir(os.path.join(data_dir, "sessions"))
+            self.assertEqual(len(sessions), 1, sessions)
+            self.assertTrue(sessions[0].endswith("_maria-perez"), sessions[0])
+
+            # the banner and the farewell both name the candidate
+            self.assertIn(name, out)
+            self.assertIn("result column on for 5/5 exercises", out)
+            # the feed shows the verdict and the style flags of that one run
+            self.assertIn("PASS", out)
+
+            log = os.path.join(data_dir, "sessions", sessions[0], "session.jsonl")
+            with open(log, encoding="utf-8") as f:
+                entries = [json.loads(line) for line in f if line.strip()]
+            start = entries[0]
+            self.assertEqual(start["type"], "session_start")
+            self.assertEqual(start["candidate"], name)
+            self.assertEqual(start["log_version"], 2)
+            self.assertEqual(set(start["checks"].values()), {True})
+
+            runs = [e for e in entries if e["type"] == "run"]
+            self.assertEqual(runs[-1]["check"]["verdict"], "PASS")
+            self.assertIn("flags", runs[-1]["style"])
+            self.assertEqual(entries[-1]["type"], "session_end")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            shutil.rmtree(data_dir, ignore_errors=True)
+
+
+@unittest.skipUnless(HAS_DUCKDB, "duckdb not installed")
 class TestShutdownDuringStartup(unittest.TestCase):
     """A signal during the tunnel wait must not escape as a traceback."""
 

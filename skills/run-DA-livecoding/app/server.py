@@ -8,16 +8,45 @@ import json
 import shutil
 import sys
 import time
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import checker
 import guardrails
+import sqlstyle
 
 MAX_BODY_BYTES = 256 * 1024
 EDITOR_MAX_CHARS = 20_000
 MIN_SECONDS_BETWEEN_RUNS = 2.0
 SQL_SNIPPET_CHARS = 80
-ROW_PREFIX_CHARS = 57  # width of the columns before the query text
+
+
+def _char_width(c):
+    """Columns one character occupies; CJK and emoji take two."""
+    return 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+
+
+def _display_width(text):
+    return sum(_char_width(c) for c in text)
+
+
+def _clip(text, limit):
+    """Cut `text` to at most `limit` terminal columns, not characters.
+
+    Counting characters would let a line of CJK text run twice as wide as the
+    window and wrap, which breaks the alignment of every row below it.
+    """
+    if limit <= 0:
+        return ""
+    out, used = [], 0
+    for c in text:
+        width = _char_width(c)
+        if used + width > limit:
+            break
+        out.append(c)
+        used += width
+    return "".join(out)
 
 
 def _terminal_safe(sql, limit):
@@ -28,7 +57,95 @@ def _terminal_safe(sql, limit):
     into it and repaint or erase the terminal.
     """
     flat = " ".join(sql.split())
-    return "".join(c if c.isprintable() else " " for c in flat)[:limit]
+    return _clip("".join(c if c.isprintable() else " " for c in flat), limit)
+
+
+def _safe(label, fn, *args):
+    """Run an interviewer-only extra; never let it break a candidate's run."""
+    try:
+        return fn(*args)
+    except Exception as e:
+        print(f"[warn] {label} failed: {type(e).__name__}: {e}",
+              file=sys.stderr, flush=True)
+        return None
+
+
+MIN_SNIPPET_CHARS = 20  # below this, dropping ms buys more query text
+                        # than it costs (7 columns back for the snippet)
+
+
+class Layout:
+    """Column widths of the live feed.
+
+    The header, every run row and the reason line are built here, so they
+    cannot drift apart. Geometry is recomputed for each line, so resizing the
+    window mid-interview cannot leave the rows misaligned with the header. A
+    window too narrow for every column drops `ms` first and then trims the
+    query, and no line is ever wider than the window: a wrapped row would
+    break the alignment of everything below it.
+    """
+
+    def __init__(self, exercise_names=(), width_fn=None):
+        self.width_fn = width_fn or (
+            lambda: shutil.get_terminal_size((100, 24)).columns)
+        self.ex_w = min(20, max(13, max((len(n) for n in exercise_names),
+                                        default=0) + 2))
+
+    # -- geometry ---------------------------------------------------------
+    def _geometry(self):
+        """(terminal width, ms column width, width of everything before the query)"""
+        width = self.width_fn()
+        full = self._prefix_for(7)
+        ms_w = 0 if width - full < MIN_SNIPPET_CHARS else 7
+        return width, ms_w, self._prefix_for(ms_w)
+
+    def _prefix_for(self, ms_w):
+        return 2 + 10 + self.ex_w + 10 + 5 + ms_w + 2 + 11 + 7 + 1
+
+    @property
+    def compact(self):
+        return self._geometry()[1] == 0
+
+    @property
+    def prefix(self):
+        return self._geometry()[2]
+
+    @property
+    def detail_indent(self):
+        width, ms_w, prefix = self._geometry()
+        indent = prefix - 11 - 7 - 1  # under the 'result' column
+        return indent if indent + 8 <= width else 2
+
+    # -- lines ------------------------------------------------------------
+    def header(self):
+        return self._line("time", "exercise", "status", "rows", "ms",
+                          "result", "style", "query")
+
+    def rule(self, char="\u2500"):
+        width, _, prefix = self._geometry()
+        return char * max(20, min(width, max(72, prefix + 5)))
+
+    def row(self, stamp, exercise, status, rows, ms, result, style, sql):
+        width, _, prefix = self._geometry()
+        room = min(SQL_SNIPPET_CHARS, max(0, width - prefix))
+        return self._line(stamp, self._fit(exercise), status, rows, ms,
+                          result, style, _terminal_safe(sql, room))
+
+    def detail(self, text):
+        indent = self.detail_indent
+        room = max(0, self.width_fn() - indent - 2)
+        return " " * indent + "\u21b3 " + _terminal_safe(text, room)
+
+    def _fit(self, name):
+        return name if len(name) < self.ex_w else name[:self.ex_w - 2] + "\u2026"
+
+    def _line(self, stamp, exercise, status, rows, ms, result, style, tail):
+        width, ms_w, _ = self._geometry()
+        ms_cell = f"{ms:>{ms_w}}" if ms_w else ""
+        line = (f"  {stamp:<10}{exercise:<{self.ex_w}}{status:<10}{rows:>5}"
+                f"{ms_cell}  {result:<11}{style:<7} {tail}")
+        return _clip(line, width)
+
 
 ENDED_HTML = (
     "<!doctype html><meta charset='utf-8'>"
@@ -37,13 +154,17 @@ ENDED_HTML = (
 )
 
 
-def build_server(session, engine, bootstrap, candidate_html, port=0, quiet=False):
+def build_server(session, engine, bootstrap, candidate_html, port=0, quiet=False,
+                 expected=None, layout=None):
     handler = type("Handler", (_Handler,), {
         "session": session,
         "engine": engine,
         "bootstrap": bootstrap,
         "candidate_html": candidate_html,
         "quiet": quiet,
+        # Interviewer-only: reference results per exercise and the feed layout.
+        "expected": expected or {},
+        "layout": layout or Layout(session.exercise_names),
     })
     httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
     httpd.daemon_threads = True
@@ -60,6 +181,8 @@ class _Handler(BaseHTTPRequestHandler):
     bootstrap = None
     candidate_html = None
     quiet = False
+    expected = {}
+    layout = None
 
     # -- routing ----------------------------------------------------------
     def do_GET(self):
@@ -123,37 +246,60 @@ class _Handler(BaseHTTPRequestHandler):
 
             ok, reason = guardrails.validate_sql(sql)
             if not ok:
-                self._record(exercise, "rejected", sql, error=reason)
+                self._record(exercise, "rejected", sql, error=reason,
+                             style=_safe("style check", sqlstyle.analyze, sql))
                 return self._json(400, {"status": "rejected", "error": reason})
 
             # Stamp only for queries that reach the engine, so an instant
             # rejection doesn't force the candidate to wait out the window.
             self.session.last_run_ts = now
             result = self.engine.run(exercise, sql)
+            # Both are interviewer-only and go to the terminal and the log;
+            # the response below stays exactly the candidate-visible fields.
+            style = _safe("style check", sqlstyle.analyze, sql,
+                          result.columns if result.status == "ok" else None)
+            check = _safe("result check", checker.compare,
+                          self.expected.get(exercise), result, sql)
             self._record(exercise, result.status, sql,
                          row_count=result.row_count, truncated=result.truncated,
-                         duration_ms=result.duration_ms, error=result.error)
+                         duration_ms=result.duration_ms, error=result.error,
+                         check=check, style=style)
             return self._json(200, result.to_dict())
         finally:
             self.session.run_lock.release()
 
     def _record(self, exercise, status, sql, row_count=None, truncated=None,
-                duration_ms=None, error=None):
+                duration_ms=None, error=None, check=None, style=None):
         self.session.record_run({
             "ts": time.time(), "exercise": exercise, "status": status,
             "sql": sql, "row_count": row_count, "truncated": truncated,
             "duration_ms": duration_ms, "error": error,
+            "check": check, "style": style,
         })
         if not self.quiet:
-            # Column widths must match the header printed by serve.py's banner.
-            rows = "" if row_count is None else str(row_count)
-            ms = "" if duration_ms is None else str(duration_ms)
-            stamp = time.strftime("%H:%M:%S")
-            width = shutil.get_terminal_size((100, 24)).columns
-            snippet = _terminal_safe(sql, max(24, min(SQL_SNIPPET_CHARS,
-                                                      width - ROW_PREFIX_CHARS)))
-            print(f"  {stamp:<10}{exercise:<18}{status:<10}{rows:>6}{ms:>8}   {snippet}",
-                  flush=True)
+            self._print_row(exercise, status, sql, row_count, duration_ms,
+                            check, style)
+
+    def _print_row(self, exercise, status, sql, row_count, duration_ms,
+                   check, style):
+        """Print one line of the live feed.
+
+        Guarded on purpose: the run is already executed and logged by now, so
+        a formatting bug must not cost the candidate their response.
+        """
+        try:
+            print(self.layout.row(
+                time.strftime("%H:%M:%S"), exercise, status,
+                "" if row_count is None else str(row_count),
+                "" if duration_ms is None else str(duration_ms),
+                (check or {}).get("label") or "",
+                "" if style is None else (style["flags"] or "ok"),
+                sql), flush=True)
+            if check and check["verdict"] in ("FAIL", "NEAR", "?") and check.get("reason"):
+                print(self.layout.detail(check["reason"]), flush=True)
+        except Exception as e:
+            print(f"[warn] console row failed: {type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
 
     # -- plumbing ---------------------------------------------------------
     def _authorized(self, parts):

@@ -2,6 +2,8 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -11,7 +13,7 @@ try:
 except ImportError:
     HAS_DUCKDB = False
 
-from engine import DuckDBEngine
+from engine import DuckDBEngine, RunResult
 from exercises import load_exercises
 
 
@@ -107,6 +109,36 @@ class TestDuckDBEngine(unittest.TestCase):
         self.assertEqual(r.status, "ok")
         for v in r.rows[0]:
             self.assertIsInstance(v, (str, int, float, bool, type(None)))
+
+    def test_to_dict_is_a_frozen_allow_list(self):
+        # This dict goes straight to the candidate's browser: raw values and
+        # any interviewer-only field must never appear in it.
+        r = self.engine.run("exercise_01", "SELECT 1 AS a")
+        self.assertEqual(set(r.to_dict()), set(RunResult.WIRE_FIELDS))
+        self.assertNotIn("raw_rows", r.to_dict())
+
+    def test_raw_rows_keep_native_types(self):
+        r = self.engine.run("exercise_05",
+                            "SELECT order_date, order_usd_amount FROM orders LIMIT 1")
+        self.assertEqual(r.status, "ok")
+        self.assertIsInstance(r.raw_rows[0][0], date)
+        self.assertIsInstance(r.raw_rows[0][1], Decimal)
+        # while the candidate-visible copy stays JSON-safe
+        for v in r.rows[0]:
+            self.assertIsInstance(v, (str, int, float, bool, type(None)))
+
+    def test_raw_rows_show_the_overflow_beyond_the_row_cap(self):
+        r = self.engine.run("exercise_01", "SELECT o1.id FROM orders o1, orders o2")
+        self.assertTrue(r.truncated)
+        self.assertEqual(len(r.rows), self.engine.row_cap)
+        # one row past the cap, so a result checker can tell "too many rows"
+        # apart from "a single cell was shortened"
+        self.assertEqual(len(r.raw_rows), self.engine.row_cap + 1)
+
+    def test_a_shortened_cell_does_not_look_like_extra_rows(self):
+        r = self.engine.run("exercise_01", "SELECT repeat('x', 1000000) AS big")
+        self.assertTrue(r.truncated)
+        self.assertEqual(len(r.raw_rows), 1)
 
     def test_timeout_interrupts_long_query(self):
         eng = DuckDBEngine(load_exercises(["exercise_01"]),

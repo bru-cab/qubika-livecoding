@@ -3,9 +3,11 @@
 Run **live SQL interviews** from your own laptop — no third-party product, no
 per-seat cost. One command starts a small local web app with 5 SQL exercises
 (statement + schemas + editor + Run button + results) on an embedded DuckDB
-engine, and exposes it through an **ephemeral public link** (Cloudflare quick
-tunnel, free, no account) that you paste in the Google Meet chat. The
-candidate shares their screen; your terminal shows every query they run.
+engine, and exposes it through an **ephemeral public link** (a Cloudflare
+quick tunnel or localhost.run — both free, no account — whichever proves
+reachable first) that you paste in the Google Meet chat. The
+candidate shares their screen; your terminal shows every query they run,
+whether its result matches the reference answer, and short SQL style flags.
 **Stopping the process kills the link instantly**, and a JSONL log of the full
 session is saved for later review.
 
@@ -47,7 +49,7 @@ with `/qubika-livecoding:run-DA-livecoding` or by asking "list the SQL exercises
 ## Setup (one time)
 
 ```bash
-brew install cloudflared
+brew install cloudflared   # optional — without it the link comes from localhost.run
 ```
 
 ```bash
@@ -58,10 +60,13 @@ python3 -m pip install --break-system-packages duckdb
 
 **The interview runs in your own terminal, and you stop it there.** Run
 **`/qubika-livecoding:run-DA-livecoding`** (or just ask: *"run a SQL interview"*) and you
-get a one-line command to paste into your terminal. From that point on, that
-window is the interview: it prints the candidate link, the steps, and every
-query the candidate runs. **Ctrl+C in that window ends the interview** — the
-link dies instantly.
+get a one-line command to paste into your terminal. Claude asks for the
+candidate's name first and passes it as `--candidate`, so the log and the
+session folder carry it. From that point on, that window is the interview: it
+prints the candidate link, the steps, and every query the candidate runs, each
+with a **result** verdict against the reference solution (`PASS`, `NEAR:*`,
+`FAIL:*` with the reason) and **style** flags. **Ctrl+C in that window ends the
+interview** — the link dies instantly.
 
 Claude never launches the server itself, on purpose: a server started from a
 chat session dies with that session and would drop the candidate's link
@@ -72,27 +77,33 @@ Other things to ask Claude, any time:
 - **"List the SQL exercises"** — the difficulty ladder with the technique each
   one tests (interviewer-only info).
 - **"Show me the solutions"** — reference answers with expected outputs.
-- **"What has the candidate run?"** — reads the live session log.
+- **"What has the candidate run?"** — reads the live session log (queries,
+  the result verdict and style flags per run).
 - **"Add an exercise about window functions"** — scaffolds it in the right
   format.
 
-Session logs are written to `~/qubika-sql-interviews/sessions/` (never inside
-the plugin).
+Session logs are written to
+`~/qubika-sql-interviews/sessions/<timestamp>_<candidate-slug>/`, or just
+`<timestamp>/` when no name was given (never inside the plugin).
 
 ## Security model (short version)
 
 Every route requires a 128-bit session token; anything else is a 404. The
 candidate's SQL runs on a read-only DuckDB connection with external access
 disabled — no local file reads, no writes, no config changes — plus a 30s
-query timeout, 200-row result cap and rate limiting. Exercise data is 100%
-synthetic (hard rule for any exercise you add). The tunnel link dies with the
-process and subdomains are never reused.
+query timeout, 200-row result cap and rate limiting. Result verdicts, style
+flags and the candidate's name are interviewer-only: they go to the terminal
+and the log, never to any HTTP response. Exercise data is 100% synthetic (hard
+rule for any exercise you add). The tunnel link dies with the process and
+subdomains are never reused.
 
 ## Notes
 
-- The tunnel subdomain is random (Cloudflare quick tunnels don't allow custom
-  names); the app auto-discards off-putting names. A fixed branded URL
-  (e.g. `sql-livecoding.qubika.com`) requires a Cloudflare named tunnel —
-  see the app README's "Future evolution".
-- Plan B if the candidate's network blocks `trycloudflare.com`: run with
-  `--no-tunnel` and share your own screen.
+- The link is checked before it is shown: Cloudflare and localhost.run are
+  started together and the first one the server answers through wins, so a
+  Cloudflare outage costs a few seconds instead of a dead link. The subdomain
+  is random either way; off-putting Cloudflare names are auto-discarded. A
+  fixed branded URL (e.g. `sql-livecoding.qubika.com`) would need a Cloudflare
+  named tunnel — see the app README's "Future evolution".
+- Plan B if the candidate's network blocks one provider: `--tunnel` the other
+  one; if both, run with `--no-tunnel` and share your own screen.

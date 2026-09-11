@@ -12,8 +12,12 @@ Authoring rules:
   interviewer-facing "focus" field (shown by --list) and in solution.sql.
 - Statements must be explicit about the expected output shape.
 - Metric names must be consistent between statement, schema and solution.
+- "check" says how the interviewer's result column compares a candidate's
+  output with solution.sql: set ordered/order_by whenever the statement asks
+  for a specific row order (see exercises.DEFAULT_CHECK).
 """
 import csv
+import io
 import json
 import os
 import random
@@ -81,6 +85,7 @@ EXERCISES = {
         "difficulty": "junior",
         "focus": "warmup: COUNT + WHERE",
         "tables": ["orders"],
+        "check": {"ordered": False},
         "statement": """# Exercise 1
 
 You have the `orders` table with the orders of an online store.
@@ -97,6 +102,7 @@ Return a single number.
         "difficulty": "junior",
         "focus": "JOIN + numeric filter",
         "tables": ["customers", "orders"],
+        "check": {"ordered": True, "order_by": ["order_usd_amount"]},
         "statement": """# Exercise 2
 
 You have the `customers` and `orders` tables.
@@ -117,6 +123,7 @@ Sort the result by amount, highest first.
         "difficulty": "junior",
         "focus": "JOIN + GROUP BY per country",
         "tables": ["customers", "orders"],
+        "check": {"ordered": False},
         "statement": """# Exercise 3
 
 Same tables: `customers` and `orders`.
@@ -138,6 +145,7 @@ Return one row per country, with the country and its total completed amount.
         "difficulty": "junior/mid",
         "focus": "JOIN + GROUP BY + HAVING",
         "tables": ["customers", "orders"],
+        "check": {"ordered": True, "order_by": ["order_count"]},
         "statement": """# Exercise 4
 
 Same tables: `customers` and `orders`.
@@ -157,6 +165,7 @@ the customer name and their order count, sorted by count, highest first.
         "difficulty": "junior/mid",
         "focus": "JOIN + GROUP BY + ORDER BY + LIMIT (top-N)",
         "tables": ["customers", "orders"],
+        "check": {"ordered": True, "order_by": ["total_completed_usd"]},
         "statement": """# Exercise 5
 
 Same tables: `customers` and `orders`.
@@ -174,43 +183,54 @@ Return the customer name and that total amount, highest first.
 }
 
 
-def write_csv(path, header, rows):
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(header)
-        w.writerows(rows)
+def _csv_bytes(header, rows):
+    buf = io.StringIO(newline="")
+    w = csv.writer(buf)
+    w.writerow(header)
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
+
+
+def render_exercise(name, spec):
+    """Every file of one exercise as {relative path: bytes}.
+
+    main() writes exactly what this returns, so a test can assert the
+    committed files still match the generator byte for byte.
+    """
+    meta = {
+        "title": spec["title"],
+        "difficulty": spec["difficulty"],
+        "focus": spec["focus"],  # interviewer-facing only (--list)
+        "tables": [{"name": t, "csv": f"data/{t}.csv"} for t in spec["tables"]],
+        "sample_rows": 5,
+        "check": spec["check"],  # interviewer-only result comparison options
+    }
+    ddl = []
+    if "customers" in spec["tables"]:
+        ddl.append(CUSTOMERS_DDL)
+    if "orders" in spec["tables"]:
+        ddl.append(ORDERS_DDL)
+
+    files = {
+        "exercise.json": (json.dumps(meta, ensure_ascii=False, indent=2)
+                          + "\n").encode("utf-8"),
+        "statement.md": spec["statement"].encode("utf-8"),
+        "schema.sql": ("\n\n".join(ddl) + "\n").encode("utf-8"),
+        "solution.sql": spec["solution"].encode("utf-8"),
+        "data/orders.csv": _csv_bytes(ORDERS_HEADER, orders),
+    }
+    if "customers" in spec["tables"]:
+        files["data/customers.csv"] = _csv_bytes(CUSTOMERS_HEADER, customers)
+    return files
 
 
 def main():
     for name, spec in EXERCISES.items():
         folder = os.path.join(EX_DIR, name)
-        data_dir = os.path.join(folder, "data")
-        os.makedirs(data_dir, exist_ok=True)
-
-        meta = {
-            "title": spec["title"],
-            "difficulty": spec["difficulty"],
-            "focus": spec["focus"],  # interviewer-facing only (--list)
-            "tables": [{"name": t, "csv": f"data/{t}.csv"} for t in spec["tables"]],
-            "sample_rows": 5,
-        }
-        with open(os.path.join(folder, "exercise.json"), "w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-        with open(os.path.join(folder, "statement.md"), "w", encoding="utf-8") as f:
-            f.write(spec["statement"])
-        ddl = []
-        if "customers" in spec["tables"]:
-            ddl.append(CUSTOMERS_DDL)
-        if "orders" in spec["tables"]:
-            ddl.append(ORDERS_DDL)
-        with open(os.path.join(folder, "schema.sql"), "w", encoding="utf-8") as f:
-            f.write("\n\n".join(ddl) + "\n")
-        with open(os.path.join(folder, "solution.sql"), "w", encoding="utf-8") as f:
-            f.write(spec["solution"])
-        if "customers" in spec["tables"]:
-            write_csv(os.path.join(data_dir, "customers.csv"), CUSTOMERS_HEADER, customers)
-        write_csv(os.path.join(data_dir, "orders.csv"), ORDERS_HEADER, orders)
+        os.makedirs(os.path.join(folder, "data"), exist_ok=True)
+        for relpath, content in render_exercise(name, spec).items():
+            with open(os.path.join(folder, relpath), "wb") as f:
+                f.write(content)
 
     print(f"customers: {len(customers)} rows, orders: {len(orders)} rows")
     print("completed:", sum(1 for o in orders if o[3] == "completed"))

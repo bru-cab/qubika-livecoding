@@ -13,10 +13,11 @@ import shutil
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from datetime import time as dtime
 from decimal import Decimal
+from typing import ClassVar
 
 DEFAULT_TIMEOUT_S = 30
 DEFAULT_ROW_CAP = 200
@@ -46,16 +47,26 @@ class EngineError(Exception):
 
 @dataclass
 class RunResult:
-    status: str  # "ok" | "error" | "timeout"
+    status: str  # "ok" | "error" | "timeout" | "cancelled"
     columns: list = field(default_factory=list)
-    rows: list = field(default_factory=list)
+    rows: list = field(default_factory=list)  # JSON-safe, candidate-visible
     row_count: int = 0
     truncated: bool = False
     duration_ms: int = 0
     error: str = None
+    # Native-typed rows (Decimal, date, ...) for the interviewer-only result
+    # check, holding up to row_cap + 1 rows so the checker can see a row
+    # overflow for itself. NEVER serialized — see to_dict().
+    raw_rows: list = field(default_factory=list, repr=False, compare=False)
+
+    # The wire contract with candidate.html. Anything not listed here
+    # (raw_rows, any future verdict field) can never reach the browser.
+    WIRE_FIELDS: ClassVar[tuple] = ("status", "columns", "rows", "row_count",
+                                    "truncated", "duration_ms", "error")
 
     def to_dict(self):
-        return asdict(self)
+        """The candidate-visible payload: an explicit allow-list, not asdict()."""
+        return {k: getattr(self, k) for k in self.WIRE_FIELDS}
 
 
 class DuckDBEngine:
@@ -141,6 +152,7 @@ class DuckDBEngine:
         finally:
             timer.cancel()
         truncated = len(raw) > self.row_cap
+        raw_rows = [tuple(r) for r in raw]  # native values, before _json_safe
         rows = []
         budget = MAX_PAYLOAD_CHARS
         for row in raw[:self.row_cap]:
@@ -158,7 +170,7 @@ class DuckDBEngine:
                 break
         return RunResult(status="ok", columns=columns, rows=rows,
                          row_count=len(rows), truncated=truncated,
-                         duration_ms=_ms(start))
+                         duration_ms=_ms(start), raw_rows=raw_rows)
 
     def interrupt_all(self):
         """Cancel any in-flight query (used on shutdown)."""
