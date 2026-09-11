@@ -8,5 +8,8 @@
       "csv": "data/orders.csv"
     }
   ],
-  "sample_rows": 5
+  "sample_rows": 5,
+  "check": {
+    "ordered": false
+  }
 }

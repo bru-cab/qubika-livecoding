@@ -8,6 +8,7 @@
   "plugins": [
     {
       "name": "qubika-livecoding",
+      "version": "0.5.0",
       "description": "Run live SQL interviews from your own terminal: one command starts a sandboxed SQL exercise app and prints an ephemeral public link to paste in the Meet chat, plus a live feed of every query the candidate runs. Ctrl+C kills the link. Embedded DuckDB, zero cost, full session log.",
       "author": {
         "name": "Qubika Data Studio"

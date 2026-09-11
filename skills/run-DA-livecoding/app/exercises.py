@@ -1,19 +1,30 @@
 """Exercise loading and validation for Qubika SQL Interview.
 
 An exercise is a folder under exercises/ with:
-    exercise.json   {"title", "difficulty", "tables": [{"name", "csv"}], "sample_rows"}
+    exercise.json   {"title", "difficulty", "focus", "tables": [{"name", "csv"}],
+                     "sample_rows", "check": {...} (optional, see DEFAULT_CHECK)}
     statement.md    the prompt shown to the candidate
     schema.sql      CREATE TABLE statements, ;-separated
     data/*.csv      seed data, one file per table (header row required)
-    solution.sql    reference answer for the interviewer (never served)
+    solution.sql    reference answer for the interviewer; also run at startup to
+                    compute the expected result behind the terminal's result
+                    column (never served to the candidate)
 """
 import csv
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 EXERCISES_DIR = os.path.join(PROJECT_DIR, "exercises")
+
+# How a candidate's result is compared with the solution's (exercise.json "check"):
+#   enabled   false switches the result column off for this exercise
+#   ordered   true when the statement asks for a specific row order
+#   order_by  solution column names that define that order (ties tolerated);
+#             [] with ordered=true means the whole row order must match
+#   decimals  numbers are compared after rounding to this many decimals
+DEFAULT_CHECK = {"enabled": True, "ordered": False, "order_by": [], "decimals": 2}
 
 
 class ExerciseError(Exception):
@@ -30,6 +41,8 @@ class Exercise:
     schema_sql: str
     tables: list  # [{"name": str, "csv_path": str}]
     sample_rows: int
+    solution_sql: str = None  # interviewer-only; None when solution.sql is missing
+    check: dict = field(default_factory=lambda: dict(DEFAULT_CHECK))
 
 
 def list_exercise_names(exercises_dir=EXERCISES_DIR):
@@ -85,7 +98,46 @@ def load_exercise(name, exercises_dir=EXERCISES_DIR):
         schema_sql=schema_sql,
         tables=tables,
         sample_rows=int(meta.get("sample_rows", 5)),
+        solution_sql=_read_optional(folder, "solution.sql"),
+        check=_validate_check(meta.get("check"), name),
     )
+
+
+def _validate_check(raw, name):
+    """Merge exercise.json's optional "check" block over DEFAULT_CHECK.
+
+    Typos fail fast here, at startup, rather than silently disabling the
+    result column mid-interview.
+    """
+    check = dict(DEFAULT_CHECK)
+    check["order_by"] = list(check["order_by"])  # never alias the default list
+    if raw is None:
+        return check
+    if not isinstance(raw, dict):
+        raise ExerciseError(f"{name}: 'check' must be an object")
+    unknown = sorted(set(raw) - set(DEFAULT_CHECK))
+    if unknown:
+        raise ExerciseError(f"{name}: unknown check option(s): {', '.join(unknown)}")
+    for key in ("enabled", "ordered"):
+        if key in raw and not isinstance(raw[key], bool):
+            raise ExerciseError(f"{name}: check.{key} must be true or false")
+    if "order_by" in raw:
+        order_by = raw["order_by"]
+        if (not isinstance(order_by, list)
+                or not all(isinstance(c, str) and c for c in order_by)):
+            raise ExerciseError(f"{name}: check.order_by must be a list of column names")
+    if "decimals" in raw:
+        decimals = raw["decimals"]
+        if isinstance(decimals, bool) or not isinstance(decimals, int) \
+                or not 0 <= decimals <= 10:
+            raise ExerciseError(f"{name}: check.decimals must be an integer from 0 to 10")
+    check.update(raw)
+    check["order_by"] = list(check["order_by"])
+    # order_by alone would be inert, and a check that silently stops checking
+    # is the wrong kind of failure: naming order columns means order matters.
+    if check["order_by"]:
+        check["ordered"] = True
+    return check
 
 
 def load_exercises(names=None, exercises_dir=EXERCISES_DIR):
@@ -126,3 +178,13 @@ def _read(folder, filename, name):
     if not content:
         raise ExerciseError(f"{name}: {filename} is empty")
     return content
+
+
+def _read_optional(folder, filename):
+    """Like _read, but a missing or empty file is None instead of an error."""
+    path = os.path.join(folder, filename)
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        content = f.read().strip()
+    return content or None

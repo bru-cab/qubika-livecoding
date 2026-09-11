@@ -12,5 +12,11 @@
       "csv": "data/orders.csv"
     }
   ],
-  "sample_rows": 5
+  "sample_rows": 5,
+  "check": {
+    "ordered": true,
+    "order_by": [
+      "order_count"
+    ]
+  }
 }

@@ -2,14 +2,29 @@
 import hmac
 import json
 import os
+import re
 import secrets
 import shutil
 import threading
 import time
+import unicodedata
+
+
+def slugify(name, max_len=40):
+    """Filesystem-safe ASCII slug of a candidate name; "" if nothing survives.
+
+    'Ana María Pérez-López' -> 'ana-maria-perez-lopez'; '../../etc' -> 'etc'.
+    Only [a-z0-9-] can come out, so the result is safe as a directory suffix.
+    """
+    ascii_text = (unicodedata.normalize("NFKD", name or "")
+                  .encode("ascii", "ignore").decode("ascii"))
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
+    return slug[:max_len].rstrip("-")
 
 
 class Session:
-    def __init__(self, exercise_names, ttl_min, session_dir):
+    def __init__(self, exercise_names, ttl_min, session_dir, candidate=None):
+        self.candidate = candidate  # interviewer-only; never sent to the browser
         self.token = secrets.token_urlsafe(16)
         self.created_at = time.time()
         self.expires_at = self.created_at + ttl_min * 60
