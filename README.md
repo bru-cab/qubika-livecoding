@@ -82,9 +82,63 @@ Other things to ask Claude, any time:
 - **"Add an exercise about window functions"** — scaffolds it in the right
   format.
 
-Session logs are written to
-`~/qubika-sql-interviews/sessions/<timestamp>_<candidate-slug>/`, or just
-`<timestamp>/` when no name was given (never inside the plugin).
+## Commands
+
+The app is `skills/run-DA-livecoding/app/serve.py` inside the plugin. Every
+command below is `python3 "<install-dir>/skills/run-DA-livecoding/app/serve.py"`
+plus options; the skill hands it to you with the real path filled in. Run it in
+**your own terminal** and leave that window open — it *is* the interview
+console.
+
+**Start an interview:**
+
+```bash
+python3 "<install-dir>/skills/run-DA-livecoding/app/serve.py" --candidate "Full Name"
+```
+
+Within about 30 seconds the banner prints the link to paste in the Meet chat,
+checked and reachable before it is shown. **Ctrl+C in that window ends the
+interview** and kills the link.
+
+**Options** (all combinable):
+
+| Option | Effect |
+| --- | --- |
+| `--candidate "Full Name"` | Puts the name in the log, the banner, the farewell and the session folder name. Optional, but you will want it. |
+| `--exercise exercise_01,exercise_03` | Serve a subset. Default: all five. |
+| `--tunnel cloudflare` / `--tunnel localhost.run` | Force one link provider. Default: start both and keep the first one that proves reachable. |
+| `--no-tunnel` | Localhost only, no public link. The fallback when no provider works: share your own screen and the candidate dictates the SQL. |
+| `--ttl 120` | Session lifetime in minutes (default 180) — a backstop in case you forget Ctrl+C. |
+| `--port 8766` | Port (default 8765). Only needed when a previous session is still running. |
+| `--list` | Print the exercises with the technique each one tests, then exit. |
+
+**Before an interview**, to see what each exercise tests:
+
+```bash
+python3 "<install-dir>/skills/run-DA-livecoding/app/serve.py" --list
+```
+
+**Reading the console.** One line per query the candidate runs:
+
+- `result` — `PASS` (same data as the reference solution) · `NEAR:cols` /
+  `NEAR:order` (right data, other column or row order) · `FAIL:cols` /
+  `FAIL:rows` / `FAIL:vals` (wrong, with the reason on the next line) · `n/a`
+  (no reference for this exercise) · blank (the query failed, or it was an
+  `EXPLAIN`/`DESCRIBE`, not an answer). Results are compared as **data**, never
+  as SQL text, so CTEs, subqueries and different aliases all pass.
+- `style` — `ok`, or flags: `T` tabs · `I` sloppy indentation · `L` layout (a
+  long line, or a whole multi-clause query on one line) · `S` missing spaces
+  around an operator or comma · `*` `SELECT *` · `A` expression column with no
+  alias. Keyword casing is not judged.
+
+The banner repeats this legend. Both columns are for you only; the candidate
+never sees them.
+
+**Afterwards.** Each session is one folder under
+`~/qubika-sql-interviews/sessions/<timestamp>_<candidate-slug>/` (just
+`<timestamp>/` when no name was given, and never inside the plugin), holding a
+`session.jsonl` with every query, its verdict and reason, its style flags, and
+the final text of each editor.
 
 ## Security model (short version)
 

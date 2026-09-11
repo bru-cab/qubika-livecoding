@@ -69,8 +69,17 @@ link in the Meet chat. Progress is printed every 5 s while waiting.
 reason and points at `--no-tunnel`. Despite its name, localhost.run is a public
 service: the link works from anywhere.
 
-Flags: `--candidate "Full Name"` · `--port` (default 8765) · `--ttl` session
-lifetime in minutes (default 180, a backstop in case you forget to Ctrl+C).
+All options, combinable:
+
+| Option | Effect |
+| --- | --- |
+| `--candidate "Full Name"` | Puts the name in the log, the banner, the farewell and the session folder name. Optional, but you will want it. |
+| `--exercise exercise_01,exercise_03` | Serve a subset. Default: all five. |
+| `--tunnel cloudflare` / `--tunnel localhost.run` | Force one link provider. Default: start both and keep the first one that proves reachable. |
+| `--no-tunnel` | Localhost only, no public link. The fallback when no provider works: share your own screen and the candidate dictates the SQL. |
+| `--ttl 120` | Session lifetime in minutes (default 180) — a backstop in case you forget Ctrl+C. |
+| `--port 8766` | Port (default 8765). Only needed when a previous session is still running. |
+| `--list` | Print the exercises with the technique each one tests, then exit. |
 
 ## The live feed
 
